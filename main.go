@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/youtube/vitess/go/cacheservice"
 	"github.com/youtube/vitess/go/memcache"
 )
 
@@ -39,7 +41,44 @@ func main() {
 		list(address, dialTimeout)
 	case "dump":
 		dump(address, dialTimeout)
+	case "restore":
+		restore(address, dialTimeout)
 
+	}
+}
+
+func restore(address string, dialTimeout time.Duration) {
+	dec := json.NewDecoder(os.Stdin)
+	conn, err := memcache.Connect(address, dialTimeout)
+	if err != nil {
+		log.Fatalf("%#v", err)
+	}
+	defer conn.Close()
+	for {
+		var m cacheservice.Result
+		if err := dec.Decode(&m); err == io.EOF {
+			break
+		} else if err != nil {
+			log.Fatal(err)
+		}
+		if m.Cas != 0 {
+			ok, err := conn.Cas(m.Key, m.Flags, 0, m.Value, m.Cas)
+			if err != nil {
+				log.Fatalf("Cas key:%s, err:%s", m.Key, err)
+			}
+			if !ok {
+				log.Fatalf("not stored :Cas key:%s", m.Key)
+			}
+		} else {
+			ok, err := conn.Set(m.Key, m.Flags, 0, m.Value)
+			if err != nil {
+				log.Fatalf("Set key:%s, err:%s", m.Key, err)
+			}
+			if !ok {
+				log.Fatalf("not stored :Set key:%s", m.Key)
+			}
+		}
+		log.Printf("store: %#v", m)
 	}
 }
 
