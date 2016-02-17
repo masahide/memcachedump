@@ -18,7 +18,6 @@ import (
 var (
 	address     = "localhost:11211"
 	dialTimeout = 10 * time.Second
-	action      = "get"
 )
 
 func main() {
@@ -26,6 +25,7 @@ func main() {
 	flag.DurationVar(&dialTimeout, "timeout", dialTimeout, "dial timeout")
 	flag.Parse()
 	args := flag.Args()
+	action := ""
 
 	if len(args) > 0 {
 		action = args[0]
@@ -43,7 +43,13 @@ func main() {
 		dump(address, dialTimeout)
 	case "restore":
 		restore(address, dialTimeout)
+	default:
+		fmt.Println(`usage:
 
+ $ memcached -address 10.0.0.1:11211 dump > dump.json
+ $ memcached -address 10.0.0.2:11211 restore < dump.json
+ $ memcached -address 10.0.0.1:11211 dump | memcached -address 10.0.0.2:11211 restore
+`)
 	}
 }
 
