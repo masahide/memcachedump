@@ -1,0 +1,29 @@
+# circle.yml
+machine:
+  environment:
+    CHECKOUT_PATH: $HOME/$CIRCLE_PROJECT_REPONAME
+  post:
+    - echo "export BUILD_DATE=\"`date +%FT%T%z`\"" >> ~/.circlerc
+    - cat ~/.circlerc|sed 's/.*GITHUB_TOKEN.*//g'|sed 's/.*COVERALLS_TOKEN.*//g'
+dependencies:
+  pre:
+    - git tag -l 
+    - go get github.com/axw/gocov/gocov
+    - go get github.com/mattn/goveralls
+    - go get -u github.com/alecthomas/gometalinter
+    - gometalinter --install
+test:
+  override:
+    - go get -v -t ./...
+    - test -z "$(gofmt -s -l . | tee /dev/stderr)"
+    - gometalinter --deadline 30s ./...
+    - go test -race -test.v ./...
+    - goveralls -v -service=circle-ci -repotoken $COVERALLS_TOKEN ./memcache
+deployment:
+  release:
+     tag: /v.*/
+     commands:
+     - go get github.com/mitchellh/gox
+     - go get github.com/tcnksm/ghr
+     - gox --osarch "linux/amd64 darwin/amd64" -ldflags "-X main.Version=$(git describe --always --dirty) -X main.Date=$BUILD_DATE" -output "dist/${CIRCLE_PROJECT_REPONAME}_{{.OS}}_{{.Arch}}"
+     - ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace `git describe --tags` dist/
