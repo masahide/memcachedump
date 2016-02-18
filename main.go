@@ -28,25 +28,33 @@ func main() {
 	args := flag.Args()
 	action := ""
 
-	if len(args) > 0 {
+	if len(args) >= 1 {
 		action = args[0]
 	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	var err error
 	switch action {
 	case "stats":
 		params := ""
 		if len(args) > 1 {
 			params = strings.Join(args[1:], " ")
 		}
-		memcache.Stats(address, dialTimeout, params)
+		result, serr := memcache.Stats(address, dialTimeout, params)
+		if serr != nil {
+			log.Fatal(serr)
+		}
+		fmt.Printf("%s\n", result)
 	case "list":
-		memcache.List(address, dialTimeout)
+		err = memcache.PrintList(address, dialTimeout)
 	case "dump":
-		memcache.Dump(address, dialTimeout)
+		err = memcache.PrintDump(address, dialTimeout)
 	case "restore":
-		memcache.Restore(address, dialTimeout)
+		err = memcache.Restore(address, dialTimeout)
 	default:
 		flag.PrintDefaults()
 		fmt.Println(usage)
+	}
+	if err != nil {
+		log.Fatal(err)
 	}
 }

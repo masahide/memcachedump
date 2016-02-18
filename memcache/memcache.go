@@ -8,116 +8,77 @@ import (
 	"log"
 	"os"
 	"time"
-
-	youtubeMemcache "github.com/youtube/vitess/go/memcache"
 )
 
 // Restore : to restore the memcached dump data
-func Restore(address string, dialTimeout time.Duration) {
+func Restore(address string, dialTimeout time.Duration) error {
 	dec := json.NewDecoder(os.Stdin)
-	conn, err := youtubeMemcache.Connect(address, dialTimeout)
+	conn, err := NewMemcache(address, dialTimeout)
 	if err != nil {
-		log.Fatalf("%#v", err)
+		return err
 	}
 	defer conn.Close()
 	for {
 		var kv Kv
-		if err := dec.Decode(&kv); err == io.EOF {
-			break
+		if err = dec.Decode(&kv); err == io.EOF {
+			return nil
 		} else if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		var ok bool
-		var err error
-		if kv.Cas != 0 {
-			ok, err = conn.Cas(kv.Key, kv.Flags, kv.Exptime, kv.Value, kv.Cas)
-		} else {
-			ok, err = conn.Set(kv.Key, kv.Flags, kv.Exptime, kv.Value)
+		if err = conn.Set(kv); err != nil {
+			return err
 		}
-		switch {
-		case err != nil:
-			log.Fatalf("Set key:%s, err:%s", kv.Key, err)
-		case !ok:
-			log.Fatalf("not stored :Set key:%s", kv.Key)
-		}
-		fmt.Printf("store: %#v\n", kv)
 	}
 }
 
 // Stats : get stats
-func Stats(address string, dialTimeout time.Duration, params string) {
-	conn, err := youtubeMemcache.Connect(address, dialTimeout)
+func Stats(address string, dialTimeout time.Duration, params string) ([]byte, error) {
+	conn, err := NewMemcache(address, dialTimeout)
 	if err != nil {
-		log.Fatalf("%#v", err)
+		return nil, err
 	}
 	defer conn.Close()
-	result, _ := conn.Stats(params)
-	fmt.Printf("%s", result)
+	return conn.Stats(params)
 }
 
-// List : list all keys
-func List(address string, dialTimeout time.Duration) {
-	conn, err := youtubeMemcache.Connect(address, dialTimeout)
+// PrintList : list all keys
+func PrintList(address string, dialTimeout time.Duration) error {
+	conn, err := NewMemcache(address, dialTimeout)
 	if err != nil {
-		log.Fatalf("%#v", err)
+		return err
 	}
 	defer conn.Close()
 	keyCh := getListKeysChan(conn)
 	for key := range keyCh {
 		fmt.Println(key)
 	}
+	return nil
 }
 
-// Dump all data
-func Dump(address string, dialTimeout time.Duration) {
-	conn, err := youtubeMemcache.Connect(address, dialTimeout)
+// PrintDump all data
+func PrintDump(address string, dialTimeout time.Duration) error {
+	conn, err := NewMemcache(address, dialTimeout)
 	if err != nil {
-		log.Fatalf("%#v", err)
+		return err
 	}
 	defer conn.Close()
 	keyCh := getListKeysChan(conn)
-	getConn, err := youtubeMemcache.Connect(address, dialTimeout)
+	getConn, err := NewMemcache(address, dialTimeout)
 	if err != nil {
 		log.Fatalf("%#v", err)
 	}
 	for key := range keyCh {
-		results, err := getConn.Get(key.name)
+		result, err := getConn.Get(key)
+		if err != nil {
+			return err
+		}
+		b, err := json.Marshal(result)
 		if err != nil {
 			log.Fatal(err)
 		}
-		for _, ret := range results {
-			b, err := json.Marshal(Kv{ret.Key, ret.Flags, key.exptime, ret.Cas, ret.Value})
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Printf("%s\n", b)
-		}
+		fmt.Printf("%s\n", b)
 	}
-}
-
-// Kv : json
-type Kv struct {
-	// Key name
-	Key string `json:"key"`
-	// Flags data
-	Flags uint16 `json:"flag,omitempty"`
-	// Exptime expire time(second)
-	Exptime uint64 `json:"exp,omitempty"`
-	// Cas data
-	Cas uint64 `json:"cas,omitempty"`
-	// Value data
-	Value []byte `json:"val"`
-}
-
-type item struct {
-	key  int
-	size int
-}
-
-type keyInfo struct {
-	name    string
-	nbytes  uint64
-	exptime uint64
+	return nil
 }
 
 type getStats interface {
@@ -128,6 +89,11 @@ func getListKeysChan(conn getStats) chan keyInfo {
 	keyCh := make(chan keyInfo)
 	go getListKeys(conn, keyCh)
 	return keyCh
+}
+
+type item struct {
+	key  int
+	size int
 }
 
 func getListKeys(conn getStats, keyCh chan keyInfo) {
