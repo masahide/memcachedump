@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/youtube/vitess/go/cacheservice"
 	youtubeMemcache "github.com/youtube/vitess/go/memcache"
 )
 
@@ -22,26 +21,26 @@ func Restore(address string, dialTimeout time.Duration) {
 	}
 	defer conn.Close()
 	for {
-		var m cacheservice.Result
-		if err := dec.Decode(&m); err == io.EOF {
+		var kv Kv
+		if err := dec.Decode(&kv); err == io.EOF {
 			break
 		} else if err != nil {
 			log.Fatal(err)
 		}
 		var ok bool
 		var err error
-		if m.Cas != 0 {
-			ok, err = conn.Cas(m.Key, m.Flags, 0, m.Value, m.Cas)
+		if kv.Cas != 0 {
+			ok, err = conn.Cas(kv.Key, kv.Flags, kv.Exptime, kv.Value, kv.Cas)
 		} else {
-			ok, err = conn.Set(m.Key, m.Flags, 0, m.Value)
+			ok, err = conn.Set(kv.Key, kv.Flags, kv.Exptime, kv.Value)
 		}
 		switch {
 		case err != nil:
-			log.Fatalf("Set key:%s, err:%s", m.Key, err)
+			log.Fatalf("Set key:%s, err:%s", kv.Key, err)
 		case !ok:
-			log.Fatalf("not stored :Set key:%s", m.Key)
+			log.Fatalf("not stored :Set key:%s", kv.Key)
 		}
-		log.Printf("store: %#v", m)
+		fmt.Printf("store: %#v\n", kv)
 	}
 }
 
@@ -82,33 +81,52 @@ func Dump(address string, dialTimeout time.Duration) {
 		log.Fatalf("%#v", err)
 	}
 	for key := range keyCh {
-		results, err := getConn.Get(key)
+		results, err := getConn.Get(key.name)
 		if err != nil {
 			log.Fatal(err)
 		}
 		for _, ret := range results {
-			b, err := json.Marshal(ret)
+			b, err := json.Marshal(Kv{ret.Key, ret.Flags, key.exptime, ret.Cas, ret.Value})
 			if err != nil {
 				log.Fatal(err)
 			}
 			fmt.Printf("%s\n", b)
 		}
-
 	}
 }
 
-type item struct {
-	Key  int
-	Size int
+// Kv : json
+type Kv struct {
+	// Key name
+	Key string `json:"key"`
+	// Flags data
+	Flags uint16 `json:"flag,omitempty"`
+	// Exptime expire time(second)
+	Exptime uint64 `json:"exp,omitempty"`
+	// Cas data
+	Cas uint64 `json:"cas,omitempty"`
+	// Value data
+	Value []byte `json:"val"`
 }
 
-func getListKeysChan(conn *youtubeMemcache.Connection) chan string {
-	keyCh := make(chan string)
+type item struct {
+	key  int
+	size int
+}
+
+type keyInfo struct {
+	name    string
+	nbytes  uint64
+	exptime uint64
+}
+
+func getListKeysChan(conn *youtubeMemcache.Connection) chan keyInfo {
+	keyCh := make(chan keyInfo)
 	go getListKeys(conn, keyCh)
 	return keyCh
 }
 
-func getListKeys(conn *youtubeMemcache.Connection, keyCh chan string) {
+func getListKeys(conn *youtubeMemcache.Connection, keyCh chan keyInfo) {
 	defer close(keyCh)
 	itemsResult, err := conn.Stats("items")
 	if err != nil {
@@ -118,25 +136,30 @@ func getListKeys(conn *youtubeMemcache.Connection, keyCh chan string) {
 	items := make([]item, 0, len(itemLines)/10)
 	for _, line := range itemLines {
 		var i item
-		_, err := fmt.Sscanf(string(line), "STAT items:%d:number %d", &i.Key, &i.Size)
+		_, err := fmt.Sscanf(string(line), "STAT items:%d:number %d", &i.key, &i.size)
 		if err != nil {
 			continue
 		}
 		items = append(items, i)
 	}
 	for _, bucket := range items {
-		result, err := conn.Stats(fmt.Sprintf("cachedump %d %d", bucket.Key, bucket.Size))
+		result, err := conn.Stats(fmt.Sprintf("cachedump %d %d", bucket.key, bucket.size))
 		if err != nil {
 			log.Fatal(err)
 		}
-		lines := bytes.Split(result, []byte("\r\n"))
+		lines := bytes.Split(result, []byte("\n"))
 		//keys := make([]string, 0, len(lines))
 		for _, line := range lines {
-			words := bytes.Split(line, []byte(" "))
-			if len(words) < 2 {
+			//log.Printf("line:%#s", line)
+
+			// https://github.com/memcached/memcached/blob/c8e357f090ec1b037ca91225a6c5565b3b9b50ef/items.c#L463
+			key := keyInfo{}
+			_, err := fmt.Sscanf(string(line), "ITEM %s [%d b; %d s]", &key.name, &key.nbytes, &key.exptime)
+			if err != nil {
 				continue
 			}
-			keyCh <- string(words[1])
+			//log.Printf("key:%#v", key)
+			keyCh <- key
 		}
 	}
 }
