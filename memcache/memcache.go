@@ -120,13 +120,17 @@ type keyInfo struct {
 	exptime uint64
 }
 
-func getListKeysChan(conn *youtubeMemcache.Connection) chan keyInfo {
+type getStats interface {
+	Stats(argument string) (result []byte, err error)
+}
+
+func getListKeysChan(conn getStats) chan keyInfo {
 	keyCh := make(chan keyInfo)
 	go getListKeys(conn, keyCh)
 	return keyCh
 }
 
-func getListKeys(conn *youtubeMemcache.Connection, keyCh chan keyInfo) {
+func getListKeys(conn getStats, keyCh chan keyInfo) {
 	defer close(keyCh)
 	itemsResult, err := conn.Stats("items")
 	if err != nil {
