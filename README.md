@@ -1,5 +1,7 @@
 # memcachedump
-memcached dump &amp; restore tool
+[![Circle CI](https://circleci.com/gh/masahide/memcachedump/tree/master.svg?style=svg)](https://circleci.com/gh/masahide/memcachedump/tree/master)
+
+memcached dump/restore tool
 
 usage
 -----
