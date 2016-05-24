@@ -50,7 +50,7 @@ func PrintList(address string, dialTimeout time.Duration) error {
 	defer conn.Close()
 	keyCh := getListKeysChan(conn)
 	for key := range keyCh {
-		fmt.Println(key)
+		fmt.Printf("%#v\n", key)
 	}
 	return nil
 }
@@ -70,7 +70,9 @@ func PrintDump(address string, dialTimeout time.Duration) error {
 	for key := range keyCh {
 		result, err := getConn.Get(key)
 		if err != nil {
-			return err
+			//return fmt.Errorf("key:%v,err:%v", key, err)
+			log.Printf("key:%v,err:%v", key, err)
+			return nil
 		}
 		b, err := json.Marshal(result)
 		if err != nil {
